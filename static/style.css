@@ -1,0 +1,23 @@
+body {
+  background-color: #f8f9fa;
+}
+
+.drop-zone {
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.drop-zone.dragover {
+  background-color: #e9ecef;
+  border-style: dashed;
+}
+
+.merchant-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.merchant-name {
+  font-weight: 500;
+}
+

@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <title>Controle de Extrato Bancário</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="{{ url_for('index') }}">Extrato Corrente</a>
+      </div>
+    </nav>
+
+    <div class="container mb-4">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="row mb-4">
+        <div class="col-md-8">
+          <form
+            id="upload-form"
+            action="{{ url_for('upload') }}"
+            method="post"
+            enctype="multipart/form-data"
+            class="border rounded p-3 bg-light"
+          >
+            <h5>Upload de extratos em PDF</h5>
+            <div
+              id="drop-zone"
+              class="drop-zone my-2 p-4 text-center border border-secondary rounded"
+            >
+              Arraste e solte arquivos aqui ou clique abaixo
+            </div>
+            <input
+              type="file"
+              name="pdf_files"
+              id="pdf_files"
+              class="form-control"
+              accept=".pdf"
+              multiple
+            >
+            <button type="submit" class="btn btn-primary mt-3">Processar</button>
+          </form>
+        </div>
+        <div class="col-md-4 d-flex flex-column justify-content-between">
+          <div class="card mb-2">
+            <div class="card-body">
+              <h6 class="card-title">Total gasto (débitos)</h6>
+              <p class="card-text text-danger fw-bold">
+                R$ {{ "%.2f"|format(total_spent)|replace(".", ",") }}
+              </p>
+            </div>
+          </div>
+          <div class="card mb-2">
+            <div class="card-body">
+              <h6 class="card-title">Total arrecadado (créditos)</h6>
+              <p class="card-text text-success fw-bold">
+                R$ {{ "%.2f"|format(total_received)|replace(".", ",") }}
+              </p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-body">
+              <h6 class="card-title">Saldo líquido</h6>
+              {% set balance_class = "text-success" if balance >= 0 else "text-danger" %}
+              <p class="card-text {{ balance_class }} fw-bold">
+                R$ {{ "%.2f"|format(balance)|replace(".", ",") }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-4">
+        <div class="col-md-8">
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5 class="card-title">Filtros</h5>
+              <form method="get" action="{{ url_for('index') }}" class="row g-2">
+                <div class="col-md-3">
+                  <label class="form-label">Início</label>
+                  <input
+                    type="date"
+                    class="form-control"
+                    name="start_date"
+                    value="{{ filters.start_date }}"
+                  >
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Fim</label>
+                  <input
+                    type="date"
+                    class="form-control"
+                    name="end_date"
+                    value="{{ filters.end_date }}"
+                  >
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Tipo</label>
+                  <select name="type" class="form-select">
+                    <option value="">Todos</option>
+                    <option value="debit" {% if filters.type == 'debit' %}selected{% endif %}>Débito</option>
+                    <option value="credit" {% if filters.type == 'credit' %}selected{% endif %}>Crédito</option>
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Categoria</label>
+                  <select name="category" class="form-select">
+                    <option value="">Todas</option>
+                    {% for cat in categories %}
+                      <option value="{{ cat }}" {% if filters.category == cat %}selected{% endif %}>
+                        {{ cat }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Favorecido</label>
+                  <input
+                    type="text"
+                    name="merchant"
+                    class="form-control"
+                    value="{{ filters.merchant }}"
+                    placeholder="Buscar..."
+                  >
+                </div>
+                <div class="col-12 mt-2">
+                  <button class="btn btn-secondary me-2" type="submit">Aplicar filtros</button>
+                  <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Limpar</a>
+                  <a href="{{ url_for('export_csv') }}" class="btn btn-outline-success float-end">
+                    Exportar CSV
+                  </a>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-body table-responsive">
+              <h5 class="card-title">Transações</h5>
+              <table class="table table-sm table-striped align-middle">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Descrição</th>
+                    <th>Favorecido</th>
+                    <th>Tipo</th>
+                    <th class="text-end">Valor (R$)</th>
+                    <th>Categoria</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for t in transactions %}
+                    <tr>
+                      <td>{{ t["date"] }}</td>
+                      <td>{{ t["description_full"] }}</td>
+                      <td>{{ t["merchant_normalized"] }}</td>
+                      <td>
+                        {% if t["txn_type"] == "debit" %}
+                          <span class="badge bg-danger">Débito</span>
+                        {% else %}
+                          <span class="badge bg-success">Crédito</span>
+                        {% endif %}
+                      </td>
+                      <td class="text-end">
+                        {% set amount = "%.2f"|format(t["amount"])|replace(".", ",") %}
+                        {% if t["txn_type"] == "debit" %}
+                          <span class="text-danger">- {{ amount }}</span>
+                        {% else %}
+                          <span class="text-success">{{ amount }}</span>
+                        {% endif %}
+                      </td>
+                      <td>{{ t["category"] or "Outros" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-4">
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5 class="card-title">Favorecidos (sem categoria)</h5>
+              <input
+                type="text"
+                id="merchant-search"
+                class="form-control mb-2"
+                placeholder="Buscar favorecido..."
+              >
+              <div class="merchant-list" id="merchant-list">
+                {% set category_options = [
+                  "Casa",
+                  "Comida",
+                  "Transporte",
+                  "Saúde",
+                  "Assinaturas",
+                  "Contas",
+                  "Fastfood",
+                  "Faculdade",
+                  "Farmácia",
+                  "Hobby",
+                  "Trabalho",
+                  "Compras aleatórias",
+                  "Investimento",
+                  "Juros",
+                  "Outros"
+                ] %}
+                {% for m in merchant_unassigned %}
+                  <div class="d-flex align-items-center justify-content-between merchant-item mb-2">
+                    <div>
+                      <div class="merchant-name">{{ m["merchant_normalized"] }}</div>
+                      <small class="text-muted">
+                        Total: R$ {{ "%.2f"|format(m["total"])|replace(".", ",") }}
+                      </small>
+                    </div>
+                    <div>
+                      <select
+                        class="form-select form-select-sm merchant-category-select"
+                        data-merchant="{{ m['merchant_normalized'] }}"
+                      >
+                        <option value="">Selecione...</option>
+                        {% for cat in category_options %}
+                          <option value="{{ cat }}">{{ cat }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                  </div>
+                {% else %}
+                  <small class="text-muted">Nenhum favorecido pendente.</small>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5 class="card-title">Favorecidos categorizados</h5>
+              <div class="merchant-list" id="merchant-list-assigned">
+                {% for m in merchant_assigned %}
+                  <div class="d-flex align-items-center justify-content-between merchant-item mb-2">
+                    <div>
+                      <div class="merchant-name">{{ m["merchant_normalized"] }}</div>
+                      <small class="text-muted d-block">
+                        Total: R$ {{ "%.2f"|format(m["total"])|replace(".", ",") }}
+                      </small>
+                      <span class="badge bg-secondary mt-1">{{ m["category"] }}</span>
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        class="btn btn-outline-danger btn-sm merchant-clear-btn"
+                        data-merchant="{{ m['merchant_normalized'] }}"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                {% else %}
+                  <small class="text-muted">Nenhum favorecido categorizado ainda.</small>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5 class="card-title">Gasto por favorecido (Top 10)</h5>
+              <canvas id="chart-merchant"></canvas>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">Gasto por categoria</h5>
+              <canvas id="chart-category"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+      const chartMerchantData = {
+        labels: {{ by_merchant | map(attribute=0) | list | tojson }},
+        values: {{ by_merchant | map(attribute=1) | list | tojson }}
+      };
+      const chartCategoryData = {
+        labels: {{ by_category | map(attribute=0) | list | tojson }},
+        values: {{ by_category | map(attribute=1) | list | tojson }}
+      };
+    </script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+  </body>
+</html>
