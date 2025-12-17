@@ -13,11 +13,30 @@ body {
 }
 
 .merchant-list {
-  max-height: 320px;
+  max-height: 520px;
   overflow-y: auto;
 }
 
 .merchant-name {
   font-weight: 500;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
+.merchant-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: 10px;
+}
+
+.merchant-actions {
+  flex: 0 0 auto;
+}
+
+.merchant-actions .form-select {
+  width: 190px;
+}
+
+.merchant-actions .btn {
+  white-space: nowrap;
+}

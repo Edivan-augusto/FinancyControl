@@ -651,6 +651,17 @@ def export_csv():
     )
 
 
+@app.route("/clear-data", methods=["POST"])
+def clear_data():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM transactions;")
+    conn.commit()
+    conn.close()
+    flash("Dados importados apagados (categorias mantidas).", "success")
+    return redirect(url_for("index"))
+
+
 def run_smoke_test() -> None:
     lines = [
         "15/12/2025 CREDITO DE SALARIO ACME LTDA        000000    000000      1.350,00      0,00   1.350,00",
@@ -670,4 +681,3 @@ if __name__ == "__main__":
     init_db()
     run_smoke_test()
     app.run(debug=True)
-

@@ -30,7 +30,7 @@
       {% endwith %}
 
       <div class="row mb-4">
-        <div class="col-md-8">
+        <div class="col-md-7">
           <form
             id="upload-form"
             action="{{ url_for('upload') }}"
@@ -86,7 +86,7 @@
       </div>
 
       <div class="row mb-4">
-        <div class="col-md-8">
+        <div class="col-md-7">
           <div class="card mb-3">
             <div class="card-body">
               <h5 class="card-title">Filtros</h5>
@@ -144,6 +144,13 @@
                   <a href="{{ url_for('export_csv') }}" class="btn btn-outline-success float-end">
                     Exportar CSV
                   </a>
+                  <button
+                    type="submit"
+                    class="btn btn-outline-danger float-end me-2"
+                    formmethod="post"
+                    formaction="{{ url_for('clear_data') }}"
+                    onclick="return confirm('Apagar todos os dados importados? As categorias serão mantidas.')"
+                  >Limpar dados</button>
                 </div>
               </form>
             </div>
@@ -193,7 +200,7 @@
           </div>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-md-5">
           <div class="card mb-3">
             <div class="card-body">
               <h5 class="card-title">Favorecidos (sem categoria)</h5>
@@ -221,15 +228,19 @@
                   "Juros",
                   "Outros"
                 ] %}
+                <small
+                  id="merchant-unassigned-empty"
+                  class="text-muted {% if merchant_unassigned %}d-none{% endif %}"
+                >Nenhum favorecido pendente.</small>
                 {% for m in merchant_unassigned %}
-                  <div class="d-flex align-items-center justify-content-between merchant-item mb-2">
-                    <div>
+                  <div class="d-flex align-items-start justify-content-between merchant-item mb-2">
+                    <div class="merchant-info">
                       <div class="merchant-name">{{ m["merchant_normalized"] }}</div>
                       <small class="text-muted">
                         Total: R$ {{ "%.2f"|format(m["total"])|replace(".", ",") }}
                       </small>
                     </div>
-                    <div>
+                    <div class="merchant-actions">
                       <select
                         class="form-select form-select-sm merchant-category-select"
                         data-merchant="{{ m['merchant_normalized'] }}"
@@ -241,8 +252,6 @@
                       </select>
                     </div>
                   </div>
-                {% else %}
-                  <small class="text-muted">Nenhum favorecido pendente.</small>
                 {% endfor %}
               </div>
             </div>
@@ -252,16 +261,20 @@
             <div class="card-body">
               <h5 class="card-title">Favorecidos categorizados</h5>
               <div class="merchant-list" id="merchant-list-assigned">
+                <small
+                  id="merchant-assigned-empty"
+                  class="text-muted {% if merchant_assigned %}d-none{% endif %}"
+                >Nenhum favorecido categorizado ainda.</small>
                 {% for m in merchant_assigned %}
-                  <div class="d-flex align-items-center justify-content-between merchant-item mb-2">
-                    <div>
+                  <div class="d-flex align-items-start justify-content-between merchant-item mb-2">
+                    <div class="merchant-info">
                       <div class="merchant-name">{{ m["merchant_normalized"] }}</div>
                       <small class="text-muted d-block">
                         Total: R$ {{ "%.2f"|format(m["total"])|replace(".", ",") }}
                       </small>
                       <span class="badge bg-secondary mt-1">{{ m["category"] }}</span>
                     </div>
-                    <div>
+                    <div class="merchant-actions">
                       <button
                         type="button"
                         class="btn btn-outline-danger btn-sm merchant-clear-btn"
@@ -271,8 +284,6 @@
                       </button>
                     </div>
                   </div>
-                {% else %}
-                  <small class="text-muted">Nenhum favorecido categorizado ainda.</small>
                 {% endfor %}
               </div>
             </div>
@@ -306,6 +317,7 @@
         labels: {{ by_category | map(attribute=0) | list | tojson }},
         values: {{ by_category | map(attribute=1) | list | tojson }}
       };
+      window.CATEGORY_OPTIONS = {{ category_options | tojson }};
     </script>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
   </body>
