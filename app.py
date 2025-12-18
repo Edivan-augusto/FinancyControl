@@ -23,10 +23,8 @@ import pdfplumber
 
 try:
     import pytesseract  # type: ignore
-    from pdf2image import convert_from_bytes  # type: ignore
 except Exception:  # pragma: no cover - optional OCR
     pytesseract = None  # type: ignore
-    convert_from_bytes = None  # type: ignore
 
 
 DATABASE_PATH = os.path.join(os.path.dirname(__file__), "data.db")
@@ -34,6 +32,21 @@ DATABASE_PATH = os.path.join(os.path.dirname(__file__), "data.db")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
+
+
+def configure_tesseract() -> None:
+    if pytesseract is None:
+        return
+    env_cmd = os.environ.get("TESSERACT_CMD")
+    if env_cmd:
+        pytesseract.pytesseract.tesseract_cmd = env_cmd
+        return
+    common_path = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if os.path.exists(common_path):
+        pytesseract.pytesseract.tesseract_cmd = common_path
+
+
+configure_tesseract()
 
 
 @dataclass
@@ -161,13 +174,32 @@ def extract_text_lines_from_pdf(file_bytes: bytes) -> List[str]:
 
 
 def extract_text_with_ocr(file_bytes: bytes) -> List[str]:
-    if pytesseract is None or convert_from_bytes is None:
-        return []
+    if pytesseract is None:
+        raise RuntimeError(
+            "Este PDF parece ser uma imagem e requer OCR, mas o pytesseract não está disponível."
+        )
     lines: List[str] = []
-    images = convert_from_bytes(file_bytes)
-    for img in images:
-        text = pytesseract.image_to_string(img, lang="por")
-        lines.extend(text.splitlines())
+    try:
+        pytesseract.get_tesseract_version()
+    except Exception:
+        raise RuntimeError(
+            "Este PDF parece ser uma imagem e requer OCR, mas o Tesseract não está instalado ou não está no PATH. "
+            "Instale o Tesseract e/ou defina a variável de ambiente TESSERACT_CMD apontando para tesseract.exe."
+        )
+
+    lang = os.environ.get("TESSERACT_LANG", "por")
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            image = page.to_image(resolution=250).original
+            try:
+                text = pytesseract.image_to_string(image, lang=lang, config="--psm 6")
+            except Exception:
+                # Fallback if the requested language isn't installed (common on Windows).
+                try:
+                    text = pytesseract.image_to_string(image, lang="eng", config="--psm 6")
+                except Exception:
+                    text = pytesseract.image_to_string(image, config="--psm 6")
+            lines.extend(text.splitlines())
     return lines
 
 
@@ -254,21 +286,42 @@ def parse_transactions_from_tables(tables: List[List[str]]) -> List[Transaction]
     return transactions
 
 
+def merge_wrapped_lines(lines: List[str]) -> List[str]:
+    merged: List[str] = []
+    current = ""
+    for line in lines:
+        raw = (line or "").strip()
+        if not raw:
+            continue
+        is_new_txn = bool(re.match(r"^\d{2}/\d{2}/\d{4}", raw))
+        if is_new_txn:
+            if current:
+                merged.append(current)
+            current = raw
+            continue
+        if current:
+            current = f"{current} {raw}"
+        else:
+            merged.append(raw)
+    if current:
+        merged.append(current)
+    return merged
+
+
 def parse_transactions_from_text_lines(lines: List[str]) -> List[Transaction]:
     transactions: List[Transaction] = []
 
     money_pattern = re.compile(r"-?\d{1,3}(?:\.\d{3})*,\d{2}")
 
-    for line in lines:
+    for line in merge_wrapped_lines(lines):
         raw = line.strip()
         if not raw:
             continue
 
-        m_date = re.match(r"(\d{2}/\d{2}/\d{4})\s+(.*)", raw)
-        if not m_date:
+        if not re.match(r"^\d{2}/\d{2}/\d{4}", raw):
             continue
-
-        date_raw, rest = m_date.groups()
+        date_raw = raw[:10]
+        rest = raw[10:].strip()
         date = parse_date(date_raw)
         if not date:
             continue
@@ -283,6 +336,10 @@ def parse_transactions_from_text_lines(lines: List[str]) -> List[Transaction]:
 
         first_money_start = money_matches[0].start()
         description_raw = raw[len(date_raw) : first_money_start].strip()
+        # CAIXA layout often includes "- HH:MM:SS" and a document number
+        description_raw = re.sub(r"^\s*-\s*\d{2}:\d{2}:\d{2}\s*", "", description_raw)
+        description_raw = re.sub(r"^\s*\d{6,}\s*", "", description_raw)
+        description_raw = re.sub(r"\s+", " ", description_raw).strip()
 
         money_values = [raw[m.start() : m.end()] for m in money_matches]
 
@@ -347,10 +404,13 @@ def parse_transactions_from_pdf(file_bytes: bytes) -> List[Transaction]:
     if transactions:
         return transactions
 
-    ocr_lines = extract_text_with_ocr(file_bytes)
-    if not ocr_lines:
-        return []
-    return parse_transactions_from_text_lines(ocr_lines)
+    # If there's no extractable text, try OCR for image-based PDFs.
+    has_any_text = any((l or "").strip() for l in lines)
+    if not has_any_text and not tables:
+        ocr_lines = extract_text_with_ocr(file_bytes)
+        return parse_transactions_from_text_lines(ocr_lines)
+
+    return []
 
 
 def save_transactions(transactions: List[Transaction]) -> None:
@@ -549,6 +609,9 @@ def upload():
         file_bytes = f.read()
         try:
             txns = parse_transactions_from_pdf(file_bytes)
+        except RuntimeError as e:
+            flash(f"{f.filename}: {e}", "danger")
+            continue
         except Exception:
             flash(f"Erro ao processar PDF: {f.filename}", "danger")
             continue
